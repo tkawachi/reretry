@@ -1,10 +1,18 @@
 package retry
 
 import scala.annotation.tailrec
-import scalaz.Monoid
-import scalaz.syntax.monoid._
 
-case class RetryPolicy(getDelay: Int => Option[Long])
+case class RetryPolicy(getDelay: Int => Option[Long]) {
+  def append(another: => RetryPolicy) = new RetryPolicy(
+    n => for {
+      a <- this.getDelay(n)
+      b <- another.getDelay(n)
+    } yield a.max(b)
+  )
+
+  /** alias to append */
+  def |+|(policy: => RetryPolicy) = append(policy)
+}
 
 object RetryPolicy {
   /** Retry immediately, but only up to n times */
@@ -47,18 +55,6 @@ object RetryPolicy {
    */
   def capDelay(limit: Long, p: RetryPolicy): RetryPolicy =
     new RetryPolicy( n => p.getDelay(n).map(_.min(limit)))
-
-  implicit def retryPolicyMonoidInstance = new Monoid[RetryPolicy] {
-    override def zero: RetryPolicy = constantDelay(0)
-
-    override def append(p1: RetryPolicy, p2: => RetryPolicy): RetryPolicy =
-    new RetryPolicy(
-      n => for {
-        a <- p1.getDelay(n)
-        b <- p2.getDelay(n)
-      } yield a.max(b)
-    )
-  }
 
   def defaultPolicy = constantDelay(50000) |+| limitRetries(5)
 
